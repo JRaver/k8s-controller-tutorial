@@ -7,5 +7,5 @@ package main
 import "github.com/JRaver/k8s-controller-tutorial/cmd"
 
 func main() {
-	fmt.Println("Hello, World!")
+	cmd.Execute()
 }
