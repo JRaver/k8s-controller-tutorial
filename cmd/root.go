@@ -6,7 +6,8 @@ package cmd
 
 import (
 	"os"
-
+	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,16 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	Run: func(cmd *cobra.Command, args []string) {
+		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+		log.Trace().Msg("Trace message")
+		log.Debug().Msg("Debug message")
+		log.Info().Msg("Info message")
+		log.Warn().Msg("Warn message")
+		log.Error().Msg("Error message")
+		log.Fatal().Msg("Fatal message")
+		log.Panic().Msg("Panic message")
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

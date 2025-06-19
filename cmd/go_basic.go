@@ -3,12 +3,14 @@ package cmd
 import (
 	"fmt"
 	"github.com/spf13/cobra"
+	"github.com/rs/zerolog/log"
 )
 
 var goBasicCmd = &cobra.Command{
 	Use:   "go-basic",
 	Short: "Basic Go commands for Lab 1",
 	Run: func(cmd *cobra.Command, args []string) {
+		log.Info().Msg("Starting Go Basic command")
 		k := &Kubernetes{
 			name: "Kubernetes",
 			version: "1.24.0",
@@ -18,10 +20,14 @@ var goBasicCmd = &cobra.Command{
 		// Print users
 		fmt.Println(k.PrintUsers())
 		// Add user
+		log.Info().Msg("Adding user")
 		k.AddUser("user4")
+		log.Debug().Msg("User added and printed users")
 		fmt.Println(k.PrintUsers())
 		// Remove user
+		log.Info().Msg("Removing user")
 		k.RemoveUser("user2")
+		log.Debug().Msg("User removed and printed users")
 		fmt.Println(k.PrintUsers())
 	},
 }
