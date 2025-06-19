@@ -2,19 +2,23 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
+
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
 )
 
 var goBasicCmd = &cobra.Command{
 	Use:   "go-basic",
 	Short: "Basic Go commands for Lab 1",
 	Run: func(cmd *cobra.Command, args []string) {
+		level := SetLogLevel(LogLevel)
+		ConfigureLogger(level)
+
 		log.Info().Msg("Starting Go Basic command")
 		k := &Kubernetes{
-			name: "Kubernetes",
-			version: "1.24.0",
-			users: []string{"user1", "user2", "user3"},
+			name:       "Kubernetes",
+			version:    "1.24.0",
+			users:      []string{"user1", "user2", "user3"},
 			nodeNumber: 3,
 		}
 		// Print users
@@ -29,6 +33,7 @@ var goBasicCmd = &cobra.Command{
 		k.RemoveUser("user2")
 		log.Debug().Msg("User removed and printed users")
 		fmt.Println(k.PrintUsers())
+		log.Warn().Msg("Someone is deleted the user")
 	},
 }
 
@@ -37,9 +42,9 @@ func init() {
 }
 
 type Kubernetes struct {
-	name string
-	version string
-	users []string
+	name       string
+	version    string
+	users      []string
 	nodeNumber int
 }
 

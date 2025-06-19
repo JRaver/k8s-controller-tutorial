@@ -1,17 +1,16 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
+	"fmt"
 	"os"
-	"github.com/rs/zerolog/log"
+	"time"
+
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-
+var LogLevel string = "info"
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -26,7 +25,10 @@ to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+		level := SetLogLevel(LogLevel)
+		ConfigureLogger(level)
+
+		log.Info().Msg("Starting k8s-controller-tutorial")
 		log.Trace().Msg("Trace message")
 		log.Debug().Msg("Debug message")
 		log.Info().Msg("Info message")
@@ -56,6 +58,48 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.PersistentFlags().StringVar(&LogLevel, "log-level", "info", "Log level")
 }
 
+func SetLogLevel(logLevel string) zerolog.Level {
+	level, err := zerolog.ParseLevel(logLevel)
+	if err != nil {
+		log.Error().Msgf("Invalid log level: %s", logLevel)
+		return zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(level)
+	return level
+}
 
+func ConfigureLogger(level zerolog.Level) {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	consoleWriter := zerolog.ConsoleWriter{
+		Out:        os.Stdout,
+		TimeFormat: time.RFC3339,
+		PartsOrder: []string{
+			zerolog.TimestampFieldName,
+			zerolog.LevelFieldName,
+			zerolog.MessageFieldName,
+		},
+	}
+
+	if level == zerolog.TraceLevel {
+		zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+			return fmt.Sprintf("%s:%d", file, line)
+		}
+		zerolog.CallerFieldName = "caller"
+		log.Logger = log.Output(zerolog.ConsoleWriter{
+			Out:        os.Stderr,
+			TimeFormat: time.RFC3339,
+			PartsOrder: []string{
+				zerolog.TimestampFieldName,
+				zerolog.LevelFieldName,
+				zerolog.CallerFieldName,
+				zerolog.MessageFieldName,
+			},
+		}).With().Caller().Logger()
+	} else {
+		log.Logger = log.Output(consoleWriter).With().Timestamp().Logger()
+	}
+}
