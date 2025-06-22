@@ -14,6 +14,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+var deploymentInformer cache.SharedIndexInformer
+
 func StartDeploymentInformer(ctx context.Context, clientset *kubernetes.Clientset, namespace string) {
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
@@ -23,8 +25,8 @@ func StartDeploymentInformer(ctx context.Context, clientset *kubernetes.Clientse
 			options.FieldSelector = fields.Everything().String()
 		}),
 	)
-	deploymentInformer := factory.Apps().V1().Deployments()
-	deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	deploymentInformer = factory.Apps().V1().Deployments().Informer()
+	deploymentInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			log.Info().Msg("Deployment added: " + GetDeploymentName(obj))
 			configMap := ConfigMapBuilder(GetDeploymentName(obj), namespace, GetDeploymentName(obj), 0)
@@ -81,6 +83,22 @@ func GetDeploymentName(obj any) string {
 		return "unknown"
 	}
 	return deployment.GetName()
+}
+
+func GetDeploymentsNames() []string {
+	var names []string
+	if deploymentInformer == nil {
+		return names
+	}
+	for _, obj := range deploymentInformer.GetStore().List() {
+		deployment, ok := obj.(metav1.Object)
+		if !ok {
+			log.Error().Msg("Object is not a deployment")
+			continue
+		}
+		names = append(names, deployment.GetName())
+	}
+	return names
 }
 
 func ConfigMapBuilder(configMapName string, namespace string, deploymentName string, counter int) *corev1.ConfigMap {
