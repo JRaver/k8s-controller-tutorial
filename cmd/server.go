@@ -8,6 +8,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"context"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
+	"github.com/google/uuid"
 )
 
 var serverPort int = 8080
@@ -31,7 +32,38 @@ var serverCmd = &cobra.Command{
 
 		log.Info().Msgf("Starting server on port %d", serverPort)
 		handler := func(ctx *fasthttp.RequestCtx) {
-			ctx.WriteString("Hello, World!")
+			requestID := uuid.New().String()
+			ctx.Response.Header.Set("X-Request-ID", requestID)
+			logger := log.With().Str("request_id", requestID).Logger()
+			path := string(ctx.Path())
+			switch path {
+			case "/healthz":
+				logger.Info().Msg("Health check request")
+				ctx.WriteString("OK")
+			case "/metrics":
+				logger.Info().Msg("Metrics request")
+				fmt.Println("Metrics will be realized later")
+			case "/deployments":
+				logger.Info().Msg("Deployments request received")
+				ctx.Response.Header.Set("Content-Type", "application/json")
+				deployments := informer.GetDeploymentsNames()
+				logger.Info().Msgf("Found %d deployments with namespace %s", len(deployments), namespace)
+				ctx.SetStatusCode(fasthttp.StatusOK)
+				ctx.Write([]byte("["))
+				for i, name := range deployments {
+					ctx.WriteString("\"")
+					ctx.WriteString(string(name))
+					ctx.WriteString("\"")
+					if i < len(deployments)-1 {
+						ctx.WriteString(",")
+					}
+				}
+				ctx.WriteString("]")
+				return
+			default:
+				logger.Info().Msg("Hello from FastHTTP!")
+				ctx.WriteString("Hello from FastHTTP!")
+			}
 		}
 		if err := fasthttp.ListenAndServe(fmt.Sprintf(":%d", serverPort), handler); err != nil {
 			log.Error().Err(err).Msg("Failed to start server")
