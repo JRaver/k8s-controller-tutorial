@@ -1,5 +1,7 @@
 # Kubernetes Controller Tutorial
 
+[![CI](https://github.com/JRaver/k8s-controller-tutorial/actions/workflows/ci.yaml/badge.svg)](https://github.com/JRaver/k8s-controller-tutorial/actions/workflows/ci.yaml)
+
 A comprehensive Kubernetes controller implementation demonstrating best practices for building custom controllers with Go. This project showcases a deployment watcher that automatically creates and manages ConfigMaps based on deployment lifecycle events.
 
 ## 🚀 Features
