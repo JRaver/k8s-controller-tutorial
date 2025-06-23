@@ -32,7 +32,7 @@ $(ENVTEST): $(LOCALBIN)
 
 
 build:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_FLAGS) main.go
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_FLAGS) .
 
 test: envtest
 	go install gotest.tools/gotestsum@latest
