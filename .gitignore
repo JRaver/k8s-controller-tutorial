@@ -1,4 +1,5 @@
 controller
+k8s-controller-tutorial
 # Binaries
 /bin/
 *.exe
