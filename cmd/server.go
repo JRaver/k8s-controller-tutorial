@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/JRaver/k8s-controller-tutorial/pkg/ctrl"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
@@ -14,9 +15,13 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var serverPort int = 8080
+var enableLeaderElection bool
+var leaderElectionNamespace string
+var metricsPort int
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
@@ -37,7 +42,15 @@ var serverCmd = &cobra.Command{
 		go informer.StartDeploymentInformer(ctx, clientset, namespace)
 
 		// Start controller-runtime manager and controller
-		mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), manager.Options{})
+		mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), manager.Options{
+			LeaderElection:          enableLeaderElection,
+			LeaderElectionID:        "k8s-controller-tutorial-leader",
+			LeaderElectionNamespace: leaderElectionNamespace,
+			LeaseDuration:           &[]time.Duration{15 * time.Second}[0],
+			RenewDeadline:           &[]time.Duration{10 * time.Second}[0],
+			RetryPeriod:             &[]time.Duration{2 * time.Second}[0],
+			Metrics:                 server.Options{BindAddress: fmt.Sprintf(":%d", metricsPort)},
+		})
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
 			os.Exit(1)
@@ -64,9 +77,6 @@ var serverCmd = &cobra.Command{
 			case "/healthz":
 				logger.Info().Msg("Health check request")
 				ctx.WriteString("OK")
-			case "/metrics":
-				logger.Info().Msg("Metrics request")
-				fmt.Println("Metrics will be realized later")
 			case "/deployments":
 				logger.Info().Msg("Deployments request received")
 				ctx.Response.Header.Set("Content-Type", "application/json")
@@ -102,4 +112,7 @@ func init() {
 	serverCmd.Flags().BoolVar(&inCluster, "in-cluster", false, "Use in-cluster configuration")
 	serverCmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
 	serverCmd.Flags().StringVar(&namespace, "namespace", "default", "Namespace to watch")
+	serverCmd.Flags().BoolVar(&enableLeaderElection, "leader-election", true, "Enable leader election")
+	serverCmd.Flags().StringVar(&leaderElectionNamespace, "leader-election-namespace", "default", "Namespace for leader election")
+	serverCmd.Flags().IntVar(&metricsPort, "metrics-port", 8081, "Port for metrics")
 }
