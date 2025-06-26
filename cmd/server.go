@@ -1,14 +1,19 @@
 package cmd
 
 import (
-	"os"
+	"context"
 	"fmt"
+	"os"
+
+	"github.com/JRaver/k8s-controller-tutorial/pkg/ctrl"
+	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/valyala/fasthttp"
-	"context"
-	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
-	"github.com/google/uuid"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 var serverPort int = 8080
@@ -21,6 +26,7 @@ var serverCmd = &cobra.Command{
 		level := SetLogLevel(LogLevel)
 		ConfigureLogger(level)
 
+		ctrlruntime.SetLogger(zap.New(zap.UseDevMode(true)))
 		clientset, err := ChooseKubeConnectionType(inCluster, kubeconfig)
 		if err != nil {
 			log.Error().Err(err).Msg("Error creating clientset")
@@ -29,6 +35,24 @@ var serverCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go informer.StartDeploymentInformer(ctx, clientset, namespace)
+
+		// Start controller-runtime manager and controller
+		mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), manager.Options{})
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
+			os.Exit(1)
+		}
+		if err := ctrl.AddDeploymentController(mgr); err != nil {
+			log.Error().Err(err).Msg("Failed to add deployment controller")
+			os.Exit(1)
+		}
+		go func() {
+			log.Info().Msg("Starting controller-runtime manager...")
+			if err := mgr.Start(cmd.Context()); err != nil {
+				log.Error().Err(err).Msg("Manager exited with error")
+				os.Exit(1)
+			}
+		}()
 
 		log.Info().Msgf("Starting server on port %d", serverPort)
 		handler := func(ctx *fasthttp.RequestCtx) {

@@ -1,21 +1,23 @@
 package cmd
+
 import (
 	"context"
 	"fmt"
+
 	"github.com/rs/zerolog/log"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/rest"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
-	kubeconfig string
-	namespace string
+	kubeconfig     string
+	namespace      string
 	deploymentName string
-	inCluster bool
+	inCluster      bool
 )
 
 func ChooseKubeConnectionType(inCluster bool, kubeconfig string) (*kubernetes.Clientset, error) {
@@ -36,6 +38,7 @@ func GetKubeClient(kubeconfig string) (*kubernetes.Clientset, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		log.Error().Err(err).Msg("Error building kubeconfig with path: " + kubeconfig)
+		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
 }
