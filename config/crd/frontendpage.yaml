@@ -1,0 +1,10 @@
+apiVersion: frontend.jraver.io/v1alpha1
+kind: FrontendPage
+metadata:
+  name: testpage
+  namespace: default
+spec:
+  image: nginx:latest
+  content: this is a test
+  replicas: 1
+  port: 8888

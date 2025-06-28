@@ -12,6 +12,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"github.com/valyala/fasthttp"
+	"k8s.io/apimachinery/pkg/runtime"
+
+	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -32,6 +36,7 @@ var serverCmd = &cobra.Command{
 		ConfigureLogger(level)
 
 		ctrlruntime.SetLogger(zap.New(zap.UseDevMode(true)))
+
 		clientset, err := ChooseKubeConnectionType(inCluster, kubeconfig)
 		if err != nil {
 			log.Error().Err(err).Msg("Error creating clientset")
@@ -41,8 +46,19 @@ var serverCmd = &cobra.Command{
 		defer cancel()
 		go informer.StartDeploymentInformer(ctx, clientset, namespace)
 
+		scheme := runtime.NewScheme()
+		if err := clientgoscheme.AddToScheme(scheme); err != nil {
+			log.Error().Err(err).Msg("Error adding client-go scheme")
+			return
+		}
+		if err := frontendv1alpha1.AddToScheme(scheme); err != nil {
+			log.Error().Err(err).Msg("Error adding frontend scheme")
+			os.Exit(1)
+		}
+
 		// Start controller-runtime manager and controller
 		mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), manager.Options{
+			Scheme:                  scheme,
 			LeaderElection:          enableLeaderElection,
 			LeaderElectionID:        "k8s-controller-tutorial-leader",
 			LeaderElectionNamespace: leaderElectionNamespace,
@@ -53,6 +69,10 @@ var serverCmd = &cobra.Command{
 		})
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to create controller-runtime manager")
+			os.Exit(1)
+		}
+		if err := ctrl.AddFrontendPageController(mgr); err != nil {
+			log.Error().Err(err).Msg("Failed to add frontend page controller")
 			os.Exit(1)
 		}
 		if err := ctrl.AddDeploymentController(mgr); err != nil {
