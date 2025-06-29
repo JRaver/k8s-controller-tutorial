@@ -1,0 +1,253 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
+	"github.com/valyala/fasthttp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// FrontendPageApi is the API for the frontend page
+type FrontendPageApi struct {
+	K8SClient client.Client
+	Namespace string
+}
+
+// --- Swagger-only structs for doc
+// FrontendPageDoc is a simplified version of the FrontendPage type for swagger
+type FrontendPageDoc struct {
+	Name     string `json:"name"`
+	Content  string `json:"content"`
+	Image    string `json:"image"`
+	Replicas int    `json:"replicas"`
+	Port     int    `json:"port"`
+}
+
+// FrontendPageDocList is a list of FrontendPageDoc
+type FrontendPageDocList struct {
+	Items []FrontendPageDoc `json:"items"`
+}
+
+// --- API methods
+// ListFrontendPages godoc
+// @Summary List all frontend pages
+// @Description Get a list of all frontend pages
+// @Tags frontendpages
+// @Accept json
+// @Produce json
+// @Success 200 {object} FrontendPageDocList
+// @Router /api/frontendpages [get]
+// @Security ApiKeyAuth
+// @Param namespace query string false "Namespace to filter by"
+
+func (api *FrontendPageApi) ListFrontendPages(ctx *fasthttp.RequestCtx) {
+	list := &frontendv1alpha1.FrontendPageList{}
+	err := api.K8SClient.List(context.Background(), list, client.InNamespace(api.Namespace))
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	// Convert to FrontendPageDocList
+	docList := FrontendPageDocList{
+		Items: make([]FrontendPageDoc, len(list.Items)),
+	}
+
+	for i, page := range list.Items {
+		docList.Items[i] = FrontendPageDoc{
+			Name:     page.Name,
+			Content:  page.Spec.Content,
+			Image:    page.Spec.Image,
+			Replicas: page.Spec.Replicas,
+			Port:     page.Spec.Port,
+		}
+	}
+
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx).Encode(docList)
+}
+
+// GetFrontendPage godoc
+// @Summary Get a frontend page
+// @Description Get a frontend page by name
+// @Tags frontendpages
+// @Accept json
+// @Produce json
+// @Success 200 {object} FrontendPageDoc
+// @Router /api/frontendpages/{name} [get]
+// @Security ApiKeyAuth
+// @Param name path string true "Name of the frontend page"
+
+func (api *FrontendPageApi) GetFrontendPage(ctx *fasthttp.RequestCtx) {
+	nameValue := ctx.UserValue("name")
+	if nameValue == nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(`{"error": "name is required"}`)
+		return
+	}
+
+	name := nameValue.(string)
+	page := &frontendv1alpha1.FrontendPage{}
+	err := api.K8SClient.Get(context.Background(), client.ObjectKey{Namespace: api.Namespace, Name: name}, page)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	// Convert to FrontendPageDoc
+	doc := FrontendPageDoc{
+		Name:     page.Name,
+		Content:  page.Spec.Content,
+		Image:    page.Spec.Image,
+		Replicas: page.Spec.Replicas,
+		Port:     page.Spec.Port,
+	}
+
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx).Encode(doc)
+}
+
+// CreateFrontendPage godoc
+// @Summary Create a frontend page
+// @Description Create a new frontend page
+// @Tags frontendpages
+// @Accept json
+// @Produce json
+// @Success 200 {object} FrontendPageDoc
+// @Router /api/frontendpages [post]
+// @Security ApiKeyAuth
+// @Param frontendpage body FrontendPageDoc true "Frontend page to create"
+func (api *FrontendPageApi) CreateFrontendPage(ctx *fasthttp.RequestCtx) {
+	// Parse FrontendPageDoc from request body
+	var doc FrontendPageDoc
+	if err := json.Unmarshal(ctx.PostBody(), &doc); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	// Validate required fields
+	if doc.Name == "" {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(`{"error": "name is required"}`)
+		return
+	}
+
+	// Create FrontendPage from FrontendPageDoc
+	object := &frontendv1alpha1.FrontendPage{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      doc.Name,
+			Namespace: api.Namespace,
+		},
+		Spec: frontendv1alpha1.FrontendPageSpec{
+			Content:  doc.Content,
+			Image:    doc.Image,
+			Replicas: doc.Replicas,
+			Port:     doc.Port,
+		},
+	}
+
+	if err := api.K8SClient.Create(context.Background(), object); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	ctx.SetContentType("application/json")
+	ctx.SetStatusCode(fasthttp.StatusCreated)
+	json.NewEncoder(ctx).Encode(doc)
+}
+
+// UpdateFrontendPage godoc
+// @Summary Update a frontend page
+// @Description Update a frontend page by name
+// @Tags frontendpages
+// @Accept json
+// @Produce json
+// @Success 200 {object} FrontendPageDoc
+// @Router /api/frontendpages/{name} [put]
+// @Security ApiKeyAuth
+// @Param name path string true "Name of the frontend page"
+
+func (api *FrontendPageApi) UpdateFrontendPage(ctx *fasthttp.RequestCtx) {
+	nameValue := ctx.UserValue("name")
+	if nameValue == nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(`{"error": "name is required"}`)
+		return
+	}
+
+	name := nameValue.(string)
+
+	// Fetch the existing page
+	existingPage := &frontendv1alpha1.FrontendPage{}
+	err := api.K8SClient.Get(context.Background(), client.ObjectKey{Namespace: api.Namespace, Name: name}, existingPage)
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	// Parse FrontendPageDoc from request body
+	var doc FrontendPageDoc
+	if err := json.Unmarshal(ctx.PostBody(), &doc); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	// Update the page spec
+	existingPage.Spec.Content = doc.Content
+	existingPage.Spec.Image = doc.Image
+	existingPage.Spec.Replicas = doc.Replicas
+	existingPage.Spec.Port = doc.Port
+
+	if err := api.K8SClient.Update(context.Background(), existingPage); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx).Encode(doc)
+}
+
+// DeleteFrontendPage godoc
+// @Summary Delete a frontend page
+// @Description Delete a frontend page by name
+// @Tags frontendpages
+// @Accept json
+// @Produce json
+// @Success 200 {object} FrontendPageDoc
+// @Router /api/frontendpages/{name} [delete]
+// @Security ApiKeyAuth
+// @Param name path string true "Name of the frontend page"
+
+func (api *FrontendPageApi) DeleteFrontendPage(ctx *fasthttp.RequestCtx) {
+	nameValue := ctx.UserValue("name")
+	if nameValue == nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.WriteString(`{"error": "name is required"}`)
+		return
+	}
+
+	name := nameValue.(string)
+
+	//Delete the page
+	if err := api.K8SClient.Delete(context.Background(), &frontendv1alpha1.FrontendPage{
+		ObjectMeta: metav1.ObjectMeta{Namespace: api.Namespace, Name: name},
+	}); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
+		return
+	}
+	ctx.SetContentType("application/json")
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.WriteString(`{"message": "Frontend page deleted successfully"}`)
+}
