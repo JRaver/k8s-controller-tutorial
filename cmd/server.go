@@ -6,21 +6,30 @@ import (
 	"os"
 	"time"
 
+	_ "github.com/JRaver/k8s-controller-tutorial/docs"
+	"github.com/JRaver/k8s-controller-tutorial/pkg/api"
+	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/ctrl"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
-	"github.com/google/uuid"
+	"github.com/buaazp/fasthttprouter"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
+
+// @title K8s Controller Tutorial API
+// @version 1.0
+// @description My awesome lab controller with Swagger UI
+// @host localhost:8080
+// @BasePath /
 
 var serverPort int = 8080
 var enableLeaderElection bool
@@ -79,6 +88,54 @@ var serverCmd = &cobra.Command{
 			log.Error().Err(err).Msg("Failed to add deployment controller")
 			os.Exit(1)
 		}
+
+		router := fasthttprouter.New()
+		frontedApi := &api.FrontendPageApi{
+			K8SClient: mgr.GetClient(),
+			Namespace: namespace,
+		}
+		router.GET("/api/frontendpages", frontedApi.ListFrontendPages)
+		router.POST("/api/frontendpages", frontedApi.CreateFrontendPage)
+		router.GET("/api/frontendpages/:name", frontedApi.GetFrontendPage)
+		router.PUT("/api/frontendpages/:name", frontedApi.UpdateFrontendPage)
+		router.DELETE("/api/frontendpages/:name", frontedApi.DeleteFrontendPage)
+
+		router.GET("/health", func(ctx *fasthttp.RequestCtx) {
+			ctx.Response.Header.Set("Content-Type", "application/json")
+			ctx.SetStatusCode(fasthttp.StatusOK)
+			ctx.WriteString(`{"status": "ok"}`)
+		})
+
+		CORS := func(h fasthttp.RequestHandler) fasthttp.RequestHandler {
+			return func(ctx *fasthttp.RequestCtx) {
+				ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+				ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+				ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type,Authorization")	
+				if string(ctx.Method()) == fasthttp.MethodOptions {
+					ctx.SetStatusCode(fasthttp.StatusOK)
+					return
+				}
+				h(ctx)
+			}
+		}
+		router.GET("/swagger/*any", CORS(fasthttpadaptor.NewFastHTTPHandler(httpSwagger.WrapHandler)))
+
+		router.GET("/deployments", func(ctx *fasthttp.RequestCtx) {
+			ctx.Response.Header.Set("Content-Type", "application/json")
+			deployments := informer.GetDeploymentsNames()
+			ctx.SetStatusCode(fasthttp.StatusOK)
+			ctx.WriteString("[")
+			for i, name := range deployments {
+				ctx.WriteString("\"")
+				ctx.WriteString(string(name))
+				ctx.WriteString("\"")
+				if i < len(deployments)-1 {
+					ctx.WriteString(",")
+				}
+			}
+			ctx.WriteString("]")
+		})
+
 		go func() {
 			log.Info().Msg("Starting controller-runtime manager...")
 			if err := mgr.Start(cmd.Context()); err != nil {
@@ -86,40 +143,9 @@ var serverCmd = &cobra.Command{
 				os.Exit(1)
 			}
 		}()
-
-		log.Info().Msgf("Starting server on port %d", serverPort)
-		handler := func(ctx *fasthttp.RequestCtx) {
-			requestID := uuid.New().String()
-			ctx.Response.Header.Set("X-Request-ID", requestID)
-			logger := log.With().Str("request_id", requestID).Logger()
-			path := string(ctx.Path())
-			switch path {
-			case "/healthz":
-				logger.Info().Msg("Health check request")
-				ctx.WriteString("OK")
-			case "/deployments":
-				logger.Info().Msg("Deployments request received")
-				ctx.Response.Header.Set("Content-Type", "application/json")
-				deployments := informer.GetDeploymentsNames()
-				logger.Info().Msgf("Found %d deployments with namespace %s", len(deployments), namespace)
-				ctx.SetStatusCode(fasthttp.StatusOK)
-				ctx.Write([]byte("["))
-				for i, name := range deployments {
-					ctx.WriteString("\"")
-					ctx.WriteString(string(name))
-					ctx.WriteString("\"")
-					if i < len(deployments)-1 {
-						ctx.WriteString(",")
-					}
-				}
-				ctx.WriteString("]")
-				return
-			default:
-				logger.Info().Msg("Hello from FastHTTP!")
-				ctx.WriteString("Hello from FastHTTP!")
-			}
-		}
-		if err := fasthttp.ListenAndServe(fmt.Sprintf(":%d", serverPort), handler); err != nil {
+		addr := fmt.Sprintf(":%d", serverPort)
+		log.Info().Msgf("Starting server on %s", addr)
+		if err := fasthttp.ListenAndServe(addr, router.Handler); err != nil {
 			log.Error().Err(err).Msg("Failed to start server")
 			os.Exit(1)
 		}

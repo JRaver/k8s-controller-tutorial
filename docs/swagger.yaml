@@ -1,0 +1,142 @@
+basePath: /
+definitions:
+  api.FrontendPageDoc:
+    properties:
+      content:
+        type: string
+      image:
+        type: string
+      name:
+        type: string
+      port:
+        type: integer
+      replicas:
+        type: integer
+    type: object
+  api.FrontendPageDocList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/api.FrontendPageDoc'
+        type: array
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: My awesome lab controller with Swagger UI
+  title: K8s Controller Tutorial API
+  version: "1.0"
+paths:
+  /api/frontendpages:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of all frontend pages
+      parameters:
+      - description: Namespace to filter by
+        in: query
+        name: namespace
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FrontendPageDocList'
+      security:
+      - ApiKeyAuth: []
+      summary: List all frontend pages
+      tags:
+      - frontendpages
+    post:
+      consumes:
+      - application/json
+      description: Create a new frontend page
+      parameters:
+      - description: Frontend page to create
+        in: body
+        name: frontendpage
+        required: true
+        schema:
+          $ref: '#/definitions/api.FrontendPageDoc'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FrontendPageDoc'
+      security:
+      - ApiKeyAuth: []
+      summary: Create a frontend page
+      tags:
+      - frontendpages
+  /api/frontendpages/{name}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a frontend page by name
+      parameters:
+      - description: Name of the frontend page
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FrontendPageDoc'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a frontend page
+      tags:
+      - frontendpages
+    get:
+      consumes:
+      - application/json
+      description: Get a frontend page by name
+      parameters:
+      - description: Name of the frontend page
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FrontendPageDoc'
+      security:
+      - ApiKeyAuth: []
+      summary: Get a frontend page
+      tags:
+      - frontendpages
+    put:
+      consumes:
+      - application/json
+      description: Update a frontend page by name
+      parameters:
+      - description: Name of the frontend page
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FrontendPageDoc'
+      security:
+      - ApiKeyAuth: []
+      summary: Update a frontend page
+      tags:
+      - frontendpages
+swagger: "2.0"
