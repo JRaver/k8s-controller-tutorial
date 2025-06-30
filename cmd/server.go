@@ -12,6 +12,7 @@ import (
 	"github.com/JRaver/k8s-controller-tutorial/pkg/ctrl"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
 	"github.com/buaazp/fasthttprouter"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	httpSwagger "github.com/swaggo/http-swagger"
@@ -35,6 +36,9 @@ var serverPort int = 8080
 var enableLeaderElection bool
 var leaderElectionNamespace string
 var metricsPort int
+var enableMCP bool
+var mcpPort int
+var FrontendApi *api.FrontendPageApi
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
@@ -94,6 +98,7 @@ var serverCmd = &cobra.Command{
 			K8SClient: mgr.GetClient(),
 			Namespace: namespace,
 		}
+		api.FrontendApi = frontedApi
 		router.GET("/api/frontendpages", frontedApi.ListFrontendPages)
 		router.POST("/api/frontendpages", frontedApi.CreateFrontendPage)
 		router.GET("/api/frontendpages/:name", frontedApi.GetFrontendPage)
@@ -110,7 +115,7 @@ var serverCmd = &cobra.Command{
 			return func(ctx *fasthttp.RequestCtx) {
 				ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 				ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-				ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type,Authorization")	
+				ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
 				if string(ctx.Method()) == fasthttp.MethodOptions {
 					ctx.SetStatusCode(fasthttp.StatusOK)
 					return
@@ -143,6 +148,22 @@ var serverCmd = &cobra.Command{
 				os.Exit(1)
 			}
 		}()
+
+		if enableMCP {
+			go func() {
+				mcpServer := NewMCPServer("K8S controller MCP", "1.0.0")
+				sseServer := mcpserver.NewSSEServer(mcpServer,
+					mcpserver.WithBaseURL(fmt.Sprintf("http://:%d/mcp", mcpPort)),
+				)
+				log.Info().Msgf("Starting MCP server on port %d", mcpPort)
+				if err := sseServer.Start(fmt.Sprintf(":%d", mcpPort)); err != nil {
+					log.Error().Err(err).Msg("Failed to start SSe server")
+					os.Exit(1)
+				}
+			}()
+			log.Info().Msgf("MCP server started on port %d", mcpPort)
+		}
+
 		addr := fmt.Sprintf(":%d", serverPort)
 		log.Info().Msgf("Starting server on %s", addr)
 		if err := fasthttp.ListenAndServe(addr, router.Handler); err != nil {
@@ -161,4 +182,6 @@ func init() {
 	serverCmd.Flags().BoolVar(&enableLeaderElection, "leader-election", true, "Enable leader election")
 	serverCmd.Flags().StringVar(&leaderElectionNamespace, "leader-election-namespace", "default", "Namespace for leader election")
 	serverCmd.Flags().IntVar(&metricsPort, "metrics-port", 8081, "Port for metrics")
+	serverCmd.Flags().BoolVar(&enableMCP, "enable-mcp", false, "Enable MCP server")
+	serverCmd.Flags().IntVar(&mcpPort, "mcp-port", 9090, "Port for MCP server")
 }

@@ -18,6 +18,7 @@ report.xml
 .vscode/
 .idea/
 *.swp
+.cursor/
 
 # Go modules
 vendor/

@@ -17,6 +17,9 @@ type FrontendPageApi struct {
 	Namespace string
 }
 
+// FrontendPageApi is a shared instance for use by HTTP and MCP handlers
+var FrontendApi *FrontendPageApi
+
 // --- Swagger-only structs for doc
 // FrontendPageDoc is a simplified version of the FrontendPage type for swagger
 type FrontendPageDoc struct {
@@ -45,31 +48,37 @@ type FrontendPageDocList struct {
 // @Param namespace query string false "Namespace to filter by"
 
 func (api *FrontendPageApi) ListFrontendPages(ctx *fasthttp.RequestCtx) {
-	list := &frontendv1alpha1.FrontendPageList{}
-	err := api.K8SClient.List(context.Background(), list, client.InNamespace(api.Namespace))
+	docs, err := api.ListFrontendPagesRaw(context.Background())
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
 		return
 	}
 
-	// Convert to FrontendPageDocList
-	docList := FrontendPageDocList{
-		Items: make([]FrontendPageDoc, len(list.Items)),
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx).Encode(FrontendPageDocList{
+		Items: docs,
+	})
+}
+
+// ListFrontendPagesRaw returns raw list of frontend pages
+func (api *FrontendPageApi) ListFrontendPagesRaw(ctx context.Context) ([]FrontendPageDoc, error) {
+	list := &frontendv1alpha1.FrontendPageList{}
+	if err := api.K8SClient.List(ctx, list, client.InNamespace(api.Namespace)); err != nil {
+		return nil, err
 	}
 
-	for i, page := range list.Items {
-		docList.Items[i] = FrontendPageDoc{
+	docs := make([]FrontendPageDoc, 0, len(list.Items))
+	for _, page := range list.Items {
+		docs = append(docs, FrontendPageDoc{
 			Name:     page.Name,
 			Content:  page.Spec.Content,
 			Image:    page.Spec.Image,
 			Replicas: page.Spec.Replicas,
 			Port:     page.Spec.Port,
-		}
+		})
 	}
-
-	ctx.SetContentType("application/json")
-	json.NewEncoder(ctx).Encode(docList)
+	return docs, nil
 }
 
 // GetFrontendPage godoc
@@ -111,6 +120,30 @@ func (api *FrontendPageApi) GetFrontendPage(ctx *fasthttp.RequestCtx) {
 
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(doc)
+}
+
+// CreateFrontendPageRaw creates a frontend page directly (for MCP usage)
+func (api *FrontendPageApi) CreateFrontendPageRaw(ctx context.Context, doc FrontendPageDoc) error {
+	// Validate required fields
+	if doc.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	// Create FrontendPage from FrontendPageDoc
+	object := &frontendv1alpha1.FrontendPage{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      doc.Name,
+			Namespace: api.Namespace,
+		},
+		Spec: frontendv1alpha1.FrontendPageSpec{
+			Content:  doc.Content,
+			Image:    doc.Image,
+			Replicas: doc.Replicas,
+			Port:     doc.Port,
+		},
+	}
+
+	return api.K8SClient.Create(ctx, object)
 }
 
 // CreateFrontendPage godoc
@@ -216,6 +249,17 @@ func (api *FrontendPageApi) UpdateFrontendPage(ctx *fasthttp.RequestCtx) {
 
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(doc)
+}
+
+// DeleteFrontendPageRaw deletes a frontend page directly (for MCP usage)
+func (api *FrontendPageApi) DeleteFrontendPageRaw(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	return api.K8SClient.Delete(ctx, &frontendv1alpha1.FrontendPage{
+		ObjectMeta: metav1.ObjectMeta{Namespace: api.Namespace, Name: name},
+	})
 }
 
 // DeleteFrontendPage godoc
