@@ -39,6 +39,7 @@ var metricsPort int
 var enableMCP bool
 var mcpPort int
 var FrontendApi *api.FrontendPageApi
+var jwtSecret string
 
 var serverCmd = &cobra.Command{
 	Use:   "server",
@@ -94,16 +95,17 @@ var serverCmd = &cobra.Command{
 		}
 
 		router := fasthttprouter.New()
+		router.POST("/api/token", api.TokenHandler)
 		frontedApi := &api.FrontendPageApi{
 			K8SClient: mgr.GetClient(),
 			Namespace: namespace,
 		}
 		api.FrontendApi = frontedApi
-		router.GET("/api/frontendpages", frontedApi.ListFrontendPages)
-		router.POST("/api/frontendpages", frontedApi.CreateFrontendPage)
-		router.GET("/api/frontendpages/:name", frontedApi.GetFrontendPage)
-		router.PUT("/api/frontendpages/:name", frontedApi.UpdateFrontendPage)
-		router.DELETE("/api/frontendpages/:name", frontedApi.DeleteFrontendPage)
+		router.GET("/api/frontendpages", api.JwtMiddleware(frontedApi.ListFrontendPages))
+		router.POST("/api/frontendpages", api.JwtMiddleware(frontedApi.CreateFrontendPage))
+		router.GET("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.GetFrontendPage))
+		router.PUT("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.UpdateFrontendPage))
+		router.DELETE("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.DeleteFrontendPage))
 
 		router.GET("/health", func(ctx *fasthttp.RequestCtx) {
 			ctx.Response.Header.Set("Content-Type", "application/json")
@@ -140,6 +142,7 @@ var serverCmd = &cobra.Command{
 			}
 			ctx.WriteString("]")
 		})
+		api.JWTSecret = jwtSecret
 
 		go func() {
 			log.Info().Msg("Starting controller-runtime manager...")
@@ -184,4 +187,5 @@ func init() {
 	serverCmd.Flags().IntVar(&metricsPort, "metrics-port", 8081, "Port for metrics")
 	serverCmd.Flags().BoolVar(&enableMCP, "enable-mcp", false, "Enable MCP server")
 	serverCmd.Flags().IntVar(&mcpPort, "mcp-port", 9090, "Port for MCP server")
+	serverCmd.Flags().StringVar(&jwtSecret, "jwt-secret", "secret", "JWT secret (required for token-based authentication)")
 }
