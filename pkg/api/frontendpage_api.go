@@ -7,6 +7,7 @@ import (
 
 	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
 	"github.com/valyala/fasthttp"
+	"go.opentelemetry.io/otel/attribute"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -48,12 +49,26 @@ type FrontendPageDocList struct {
 // @Param namespace query string false "Namespace to filter by"
 
 func (api *FrontendPageApi) ListFrontendPages(ctx *fasthttp.RequestCtx) {
-	docs, err := api.ListFrontendPagesRaw(context.Background())
+	// Create child span for Kubernetes operation
+	reqCtx, span := CreateChildSpan(ctx, "k8s_list_frontendpages",
+		attribute.String("namespace", api.Namespace),
+		attribute.String("operation", "list"),
+	)
+	defer span.End()
+
+	docs, err := api.ListFrontendPagesRaw(reqCtx)
 	if err != nil {
+		RecordSpanError(ctx, err)
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
 		return
 	}
+
+	// Add result attributes
+	AddSpanAttributes(ctx,
+		attribute.Int("result.count", len(docs)),
+		attribute.Bool("result.success", true),
+	)
 
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(FrontendPageDocList{
@@ -101,9 +116,19 @@ func (api *FrontendPageApi) GetFrontendPage(ctx *fasthttp.RequestCtx) {
 	}
 
 	name := nameValue.(string)
+
+	// Create child span for Kubernetes operation
+	reqCtx, span := CreateChildSpan(ctx, "k8s_get_frontendpage",
+		attribute.String("namespace", api.Namespace),
+		attribute.String("name", name),
+		attribute.String("operation", "get"),
+	)
+	defer span.End()
+
 	page := &frontendv1alpha1.FrontendPage{}
-	err := api.K8SClient.Get(context.Background(), client.ObjectKey{Namespace: api.Namespace, Name: name}, page)
+	err := api.K8SClient.Get(reqCtx, client.ObjectKey{Namespace: api.Namespace, Name: name}, page)
 	if err != nil {
+		RecordSpanError(ctx, err)
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
 		return
@@ -117,6 +142,14 @@ func (api *FrontendPageApi) GetFrontendPage(ctx *fasthttp.RequestCtx) {
 		Replicas: page.Spec.Replicas,
 		Port:     page.Spec.Port,
 	}
+
+	// Add result attributes
+	AddSpanAttributes(ctx,
+		attribute.String("result.name", doc.Name),
+		attribute.String("result.image", doc.Image),
+		attribute.Int("result.replicas", doc.Replicas),
+		attribute.Bool("result.success", true),
+	)
 
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx).Encode(doc)
@@ -160,6 +193,7 @@ func (api *FrontendPageApi) CreateFrontendPage(ctx *fasthttp.RequestCtx) {
 	// Parse FrontendPageDoc from request body
 	var doc FrontendPageDoc
 	if err := json.Unmarshal(ctx.PostBody(), &doc); err != nil {
+		RecordSpanError(ctx, err)
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
 		return
@@ -171,6 +205,17 @@ func (api *FrontendPageApi) CreateFrontendPage(ctx *fasthttp.RequestCtx) {
 		ctx.WriteString(`{"error": "name is required"}`)
 		return
 	}
+
+	// Create child span for Kubernetes operation
+	reqCtx, span := CreateChildSpan(ctx, "k8s_create_frontendpage",
+		attribute.String("namespace", api.Namespace),
+		attribute.String("name", doc.Name),
+		attribute.String("operation", "create"),
+		attribute.String("image", doc.Image),
+		attribute.Int("replicas", doc.Replicas),
+		attribute.Int("port", doc.Port),
+	)
+	defer span.End()
 
 	// Create FrontendPage from FrontendPageDoc
 	object := &frontendv1alpha1.FrontendPage{
@@ -186,11 +231,18 @@ func (api *FrontendPageApi) CreateFrontendPage(ctx *fasthttp.RequestCtx) {
 		},
 	}
 
-	if err := api.K8SClient.Create(context.Background(), object); err != nil {
+	if err := api.K8SClient.Create(reqCtx, object); err != nil {
+		RecordSpanError(ctx, err)
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.WriteString(fmt.Sprintf(`{"error": "%s"}`, err.Error()))
 		return
 	}
+
+	// Add result attributes
+	AddSpanAttributes(ctx,
+		attribute.String("result.name", doc.Name),
+		attribute.Bool("result.success", true),
+	)
 
 	ctx.SetContentType("application/json")
 	ctx.SetStatusCode(fasthttp.StatusCreated)

@@ -14,6 +14,7 @@ A comprehensive Kubernetes controller implementation demonstrating best practice
 - **Helm Charts**: Ready-to-deploy Helm charts for Kubernetes
 - **Docker Support**: Multi-stage Docker build with distroless base image
 - **Structured Logging**: ZeroLog-based logging with configurable levels
+- **OpenTelemetry**: Distributed tracing support
 
 ## 📋 Prerequisites
 
@@ -218,4 +219,187 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For questions and support, please open an issue on GitHub or contact the maintainers. 
+For questions and support, please open an issue on GitHub or contact the maintainers.
+
+## OpenTelemetry Integration
+
+The project includes comprehensive OpenTelemetry integration that logs spans to the console and provides distributed tracing for all API endpoints.
+
+### Usage
+
+#### Starting the server with OpenTelemetry enabled
+
+```bash
+# Run with OpenTelemetry tracing enabled
+./bin/k8s-controller-tutorial server --enable-otel --log-level=debug
+
+# Or with additional options
+./bin/k8s-controller-tutorial server \
+  --enable-otel \
+  --port=8080 \
+  --namespace=default \
+  --log-level=info \
+  --jwt-secret=my-secret-key
+```
+
+#### Available flags
+
+- `--enable-otel`: Enable OpenTelemetry tracing (default: false)
+- `--port`: Server port (default: 8080)
+- `--namespace`: Kubernetes namespace to watch (default: default)
+- `--log-level`: Log level (default: info)
+- `--jwt-secret`: JWT secret for authentication (default: secret)
+
+#### OpenTelemetry Features
+
+When `--enable-otel` is enabled, the application will:
+
+1. **Initialize OpenTelemetry**: Sets up tracing with console exporter
+2. **Trace all API endpoints**: Automatically wraps all HTTP handlers
+3. **Log spans to console**: Outputs detailed span information to logs
+4. **Track HTTP requests**: Records method, path, status code, duration
+5. **Trace Kubernetes operations**: Monitors K8s API calls with detailed attributes
+
+### Example Output
+
+When OpenTelemetry is enabled, you'll see detailed trace information in the logs:
+
+```json
+{
+  "level": "info",
+  "time": "2025-01-27T10:00:00Z",
+  "message": "Starting span",
+  "span_name": "GET /api/frontendpages",
+  "trace_id": "abc123def456",
+  "span_id": "789xyz012"
+}
+
+{
+  "level": "info", 
+  "time": "2025-01-27T10:00:00Z",
+  "message": "Added span event",
+  "span_name": "start_listfrontendpages",
+  "trace_id": "abc123def456",
+  "span_id": "789xyz012"
+}
+
+{
+  "level": "info",
+  "time": "2025-01-27T10:00:00Z", 
+  "message": "Operation duration recorded",
+  "operation": "HTTP GET",
+  "duration_ms": 45,
+  "trace_id": "abc123def456",
+  "span_id": "789xyz012"
+}
+```
+
+### API Endpoints with Tracing
+
+All API endpoints are automatically traced when `--enable-otel` is enabled:
+
+- `POST /api/token` - Generate JWT token
+- `GET /api/frontendpages` - List all frontend pages
+- `POST /api/frontendpages` - Create a new frontend page
+- `GET /api/frontendpages/{name}` - Get specific frontend page
+- `PUT /api/frontendpages/{name}` - Update frontend page
+- `DELETE /api/frontendpages/{name}` - Delete frontend page
+- `GET /health` - Health check endpoint
+- `GET /deployments` - List deployments
+
+### Traced Operations
+
+The following operations are traced with detailed attributes:
+
+#### HTTP Request Tracing
+- HTTP method and path
+- Request URL and user agent
+- Remote address
+- Response status code and size
+- Request duration
+
+#### Kubernetes Operations
+- List/Get/Create/Update/Delete operations
+- Namespace and resource name
+- Operation success/failure
+- Resource attributes (image, replicas, etc.)
+
+### Testing the Tracing
+
+1. Start the server with tracing enabled:
+```bash
+./bin/k8s-controller-tutorial server --enable-otel --log-level=debug
+```
+
+2. Generate a JWT token:
+```bash
+curl -X POST http://localhost:8080/api/token \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "secret"}'
+```
+
+3. Make API calls and observe trace logs:
+```bash
+# Get the token from previous response
+TOKEN="your-jwt-token-here"
+
+# List frontend pages (will show tracing in logs)
+curl -X GET http://localhost:8080/api/frontendpages \
+  -H "Authorization: Bearer $TOKEN"
+
+# Create a frontend page (will show detailed K8s operation tracing)
+curl -X POST http://localhost:8080/api/frontendpages \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-page",
+    "content": "Hello World",
+    "image": "nginx:latest",
+    "replicas": 2,
+    "port": 80
+  }'
+```
+
+### Building and Running
+
+```bash
+# Build the application
+go build -o bin/k8s-controller-tutorial main.go
+
+# Run with OpenTelemetry
+./bin/k8s-controller-tutorial server --enable-otel
+
+# View help
+./bin/k8s-controller-tutorial server --help
+```
+
+## Development
+
+### Dependencies
+
+The project uses the following OpenTelemetry libraries:
+
+- `go.opentelemetry.io/otel` - Core OpenTelemetry API
+- `go.opentelemetry.io/otel/sdk` - OpenTelemetry SDK
+- `go.opentelemetry.io/otel/exporters/stdout/stdouttrace` - Console trace exporter
+- `go.opentelemetry.io/otel/trace` - Tracing API
+
+### Architecture
+
+The OpenTelemetry integration consists of:
+
+1. **Telemetry Package** (`pkg/telemetry/`) - Core tracing functionality
+2. **API Middleware** (`pkg/api/otel_middleware.go`) - HTTP request tracing
+3. **Server Integration** (`cmd/server.go`) - OpenTelemetry initialization
+
+### Customization
+
+To modify tracing behavior, edit the `TracingConfig` in `cmd/server.go`:
+
+```go
+config := telemetry.TracingConfig{
+    ServiceName:    "k8s-controller-tutorial",
+    ServiceVersion: "1.0.0", 
+    EnableConsole:  true,
+}
+``` 
