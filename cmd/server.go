@@ -11,6 +11,7 @@ import (
 	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/ctrl"
 	"github.com/JRaver/k8s-controller-tutorial/pkg/informer"
+	"github.com/JRaver/k8s-controller-tutorial/pkg/telemetry"
 	"github.com/buaazp/fasthttprouter"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
@@ -38,6 +39,7 @@ var leaderElectionNamespace string
 var metricsPort int
 var enableMCP bool
 var mcpPort int
+var enableOtel bool
 var FrontendApi *api.FrontendPageApi
 var jwtSecret string
 
@@ -49,9 +51,39 @@ var serverCmd = &cobra.Command{
 		level := SetLogLevel(LogLevel)
 		ConfigureLogger(level)
 
+		// Initialize OpenTelemetry if enabled
+		var shutdownOtel func(context.Context) error
+		if enableOtel {
+			config := telemetry.TracingConfig{
+				ServiceName:    "k8s-controller-tutorial",
+				ServiceVersion: "1.0.0",
+				EnableConsole:  true,
+			}
+
+			var err error
+			shutdownOtel, err = telemetry.InitTracing(context.Background(), config)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to initialize OpenTelemetry")
+				os.Exit(1)
+			}
+
+			// Function for graceful shutdown
+			defer func() {
+				if shutdownOtel != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := shutdownOtel(ctx); err != nil {
+						log.Error().Err(err).Msg("Failed to shutdown OpenTelemetry")
+					}
+				}
+			}()
+
+			log.Info().Msg("OpenTelemetry tracing enabled")
+		}
+
 		ctrlruntime.SetLogger(zap.New(zap.UseDevMode(true)))
 
-		clientset, err := ChooseKubeConnectionType(inCluster, kubeconfig)
+		clientset, kubeConfig, err := ChooseKubeConnectionType(inCluster, kubeconfig)
 		if err != nil {
 			log.Error().Err(err).Msg("Error creating clientset")
 			return
@@ -71,7 +103,7 @@ var serverCmd = &cobra.Command{
 		}
 
 		// Start controller-runtime manager and controller
-		mgr, err := ctrlruntime.NewManager(ctrlruntime.GetConfigOrDie(), manager.Options{
+		mgr, err := ctrlruntime.NewManager(kubeConfig, manager.Options{
 			Scheme:                  scheme,
 			LeaderElection:          enableLeaderElection,
 			LeaderElectionID:        "k8s-controller-tutorial-leader",
@@ -95,23 +127,35 @@ var serverCmd = &cobra.Command{
 		}
 
 		router := fasthttprouter.New()
-		router.POST("/api/token", api.TokenHandler)
+
+		// Function to wrap handlers with OpenTelemetry middleware
+		wrapHandler := func(handler fasthttp.RequestHandler) fasthttp.RequestHandler {
+			if enableOtel {
+				return api.OtelMiddleware(handler)
+			}
+			return handler
+		}
+
+		// Wrap all API endpoints with OpenTelemetry middleware
+		router.POST("/api/token", wrapHandler(api.TraceableHandler("GenerateToken", api.TokenHandler)))
+
 		frontedApi := &api.FrontendPageApi{
 			K8SClient: mgr.GetClient(),
 			Namespace: namespace,
 		}
 		api.FrontendApi = frontedApi
-		router.GET("/api/frontendpages", api.JwtMiddleware(frontedApi.ListFrontendPages))
-		router.POST("/api/frontendpages", api.JwtMiddleware(frontedApi.CreateFrontendPage))
-		router.GET("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.GetFrontendPage))
-		router.PUT("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.UpdateFrontendPage))
-		router.DELETE("/api/frontendpages/:name", api.JwtMiddleware(frontedApi.DeleteFrontendPage))
 
-		router.GET("/health", func(ctx *fasthttp.RequestCtx) {
+		router.GET("/api/frontendpages", wrapHandler(api.TraceableHandler("ListFrontendPages", api.JwtMiddleware(frontedApi.ListFrontendPages))))
+		router.POST("/api/frontendpages", wrapHandler(api.TraceableHandler("CreateFrontendPage", api.JwtMiddleware(frontedApi.CreateFrontendPage))))
+		router.GET("/api/frontendpages/:name", wrapHandler(api.TraceableHandler("GetFrontendPage", api.JwtMiddleware(frontedApi.GetFrontendPage))))
+		router.PUT("/api/frontendpages/:name", wrapHandler(api.TraceableHandler("UpdateFrontendPage", api.JwtMiddleware(frontedApi.UpdateFrontendPage))))
+		router.DELETE("/api/frontendpages/:name", wrapHandler(api.TraceableHandler("DeleteFrontendPage", api.JwtMiddleware(frontedApi.DeleteFrontendPage))))
+
+		router.GET("/health", wrapHandler(api.TraceableHandler("HealthCheck", func(ctx *fasthttp.RequestCtx) {
 			ctx.Response.Header.Set("Content-Type", "application/json")
 			ctx.SetStatusCode(fasthttp.StatusOK)
 			ctx.WriteString(`{"status": "ok"}`)
-		})
+		})))
 
 		CORS := func(h fasthttp.RequestHandler) fasthttp.RequestHandler {
 			return func(ctx *fasthttp.RequestCtx) {
@@ -127,7 +171,7 @@ var serverCmd = &cobra.Command{
 		}
 		router.GET("/swagger/*any", CORS(fasthttpadaptor.NewFastHTTPHandler(httpSwagger.WrapHandler)))
 
-		router.GET("/deployments", func(ctx *fasthttp.RequestCtx) {
+		router.GET("/deployments", wrapHandler(api.TraceableHandler("ListDeployments", func(ctx *fasthttp.RequestCtx) {
 			ctx.Response.Header.Set("Content-Type", "application/json")
 			deployments := informer.GetDeploymentsNames()
 			ctx.SetStatusCode(fasthttp.StatusOK)
@@ -141,7 +185,7 @@ var serverCmd = &cobra.Command{
 				}
 			}
 			ctx.WriteString("]")
-		})
+		})))
 		api.JWTSecret = jwtSecret
 
 		go func() {
@@ -169,6 +213,9 @@ var serverCmd = &cobra.Command{
 
 		addr := fmt.Sprintf(":%d", serverPort)
 		log.Info().Msgf("Starting server on %s", addr)
+		if enableOtel {
+			log.Info().Msg("OpenTelemetry tracing is enabled for all API endpoints")
+		}
 		if err := fasthttp.ListenAndServe(addr, router.Handler); err != nil {
 			log.Error().Err(err).Msg("Failed to start server")
 			os.Exit(1)
@@ -187,5 +234,6 @@ func init() {
 	serverCmd.Flags().IntVar(&metricsPort, "metrics-port", 8081, "Port for metrics")
 	serverCmd.Flags().BoolVar(&enableMCP, "enable-mcp", false, "Enable MCP server")
 	serverCmd.Flags().IntVar(&mcpPort, "mcp-port", 9090, "Port for MCP server")
+	serverCmd.Flags().BoolVar(&enableOtel, "enable-otel", false, "Enable OpenTelemetry tracing")
 	serverCmd.Flags().StringVar(&jwtSecret, "jwt-secret", "secret", "JWT secret (required for token-based authentication)")
 }

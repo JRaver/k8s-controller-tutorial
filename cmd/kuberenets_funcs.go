@@ -20,18 +20,30 @@ var (
 	inCluster      bool
 )
 
-func ChooseKubeConnectionType(inCluster bool, kubeconfig string) (*kubernetes.Clientset, error) {
+func ChooseKubeConnectionType(inCluster bool, kubeconfig string) (*kubernetes.Clientset, *rest.Config, error) {
+	var config *rest.Config
+	var err error
+
 	if inCluster {
-		config, err := rest.InClusterConfig()
+		config, err = rest.InClusterConfig()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return kubernetes.NewForConfig(config)
+	} else if kubeconfig != "" {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		return nil, nil, fmt.Errorf("no kubeconfig provided")
 	}
-	if kubeconfig != "" {
-		return GetKubeClient(kubeconfig)
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, fmt.Errorf("no kubeconfig provided")
+
+	return clientset, config, nil
 }
 
 func GetKubeClient(kubeconfig string) (*kubernetes.Clientset, error) {
