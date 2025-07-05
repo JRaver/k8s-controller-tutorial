@@ -9,8 +9,8 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
-	"github.com/stretchr/testify/require"
 	frontendv1alpha1 "github.com/JRaver/k8s-controller-tutorial/pkg/apis/frontend/v1alpha1"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -43,8 +44,10 @@ func StartTestManager(t *testing.T) (mgr manager.Manager, k8sClient client.Clien
 	var startErr = make(chan error)
 	var cfg *rest.Config
 
+	crdAbsPath := []string{os.Getenv("CRD_PATH")}
+
 	env := &envtest.Environment{
-		CRDDirectoryPaths:        []string{os.Getenv("CRD_PATH")},
+		CRDDirectoryPaths:        crdAbsPath,
 		ErrorIfCRDPathMissing:    true,
 		AttachControlPlaneOutput: false,
 	}
@@ -64,7 +67,14 @@ func StartTestManager(t *testing.T) (mgr manager.Manager, k8sClient client.Clien
 
 	require.NotNil(t, cfg)
 
-	mgr, err = manager.New(cfg, manager.Options{Scheme: testScheme, LeaderElection: false})
+	skipNameValidation := true
+	mgr, err = manager.New(cfg, manager.Options{
+		Scheme:         testScheme,
+		LeaderElection: false,
+		Controller: config.Controller{
+			SkipNameValidation: &skipNameValidation,
+		},
+	})
 	require.NoError(t, err)
 
 	ctx, cancel = context.WithCancel(context.Background())

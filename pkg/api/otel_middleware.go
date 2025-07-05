@@ -65,7 +65,7 @@ func OtelMiddleware(handler fasthttp.RequestHandler) fasthttp.RequestHandler {
 		// If there's an error (status >= 400), record it
 		if statusCode >= 400 {
 			errorMsg := fmt.Sprintf("HTTP %d: %s", statusCode, fasthttp.StatusMessage(statusCode))
-			telemetry.SetSpanError(span, fmt.Errorf(errorMsg))
+			telemetry.SetSpanError(span, fmt.Errorf("%s", errorMsg))
 		}
 
 		// End span
